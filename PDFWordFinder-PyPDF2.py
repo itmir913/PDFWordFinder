@@ -14,11 +14,13 @@ VERSION = "2024.10.11-PyPDF2"
 # 접미사 변수 선언
 SYNONYM_COUNTS_SUFFIX = '_words_counts.txt'
 
+
 # CSV 파일의 인코딩 자동 감지
 def detect_encoding(file_path):
     with open(file_path, 'rb') as f:
         result = chardet.detect(f.read())
         return result['encoding']
+
 
 # CSV 파일에서 단어 목록 읽기 (제너레이터)
 def read_synonyms_from_csv(csv_file):
@@ -31,6 +33,7 @@ def read_synonyms_from_csv(csv_file):
     except Exception as e:
         raise IOError(f"CSV 파일을 읽는 중 오류 발생: {str(e)}")
 
+
 # 발견된 단어 정보를 txt 파일로 저장
 def save_synonym_counts_to_txt(synonym_counts, output_file):
     try:
@@ -39,6 +42,7 @@ def save_synonym_counts_to_txt(synonym_counts, output_file):
                 f.write(f"{synonym}: {len(pages)}번 발견, 페이지: {', '.join(map(str, pages))}\n")
     except Exception as e:
         raise IOError(f"결과를 저장하는 중 오류 발생: {str(e)}")
+
 
 # PDF에서 단어 강조 및 결과 처리
 def highlight_words_in_pdf(pdf_path, csv_file, status_message_var):
@@ -69,6 +73,7 @@ def highlight_words_in_pdf(pdf_path, csv_file, status_message_var):
     except Exception as e:
         return False, {}, None, str(e)  # 오류 메시지 반환
 
+
 # 페이지에서 단어 강조
 def highlight_page_with_synonyms(text, csv_file, synonym_counts, page_num):
     for word in read_synonyms_from_csv(csv_file):
@@ -78,12 +83,14 @@ def highlight_page_with_synonyms(text, csv_file, synonym_counts, page_num):
                 synonym_counts[word] = []
             synonym_counts[word].append(page_num)
 
+
 # 결과 알림 메시지 생성
 def create_result_message(found_any_synonym, synonym_counts, txt_output_path):
     if found_any_synonym:
         # 단어 발견 횟수를 문자열로 변환
         synonym_report = "\n".join(
-            [f"{synonym}: {len(pages)}번 발견, 페이지: {', '.join(map(str, pages))}" for synonym, pages in synonym_counts.items()]
+            [f"{synonym}: {len(pages)}번 발견, 페이지: {', '.join(map(str, pages))}" for synonym, pages in
+             synonym_counts.items()]
         )
 
         message = (
@@ -97,6 +104,7 @@ def create_result_message(found_any_synonym, synonym_counts, txt_output_path):
         return message, txt_output_path  # 메시지와 txt 경로 반환
     else:
         return "단어가 발견되지 않아 검색을 종료합니다.", None  # 메시지와 None 반환
+
 
 # PDF 및 CSV 파일 선택
 def select_files(status_message_var):
@@ -112,6 +120,7 @@ def select_files(status_message_var):
 
     # 스레드에서 파일 처리 수행
     threading.Thread(target=process_files, args=(pdf_file_path, csv_file_path, status_message_var)).start()
+
 
 # 파일 처리 스레드 함수
 def process_files(pdf_file_path, csv_file_path, status_message_var):
@@ -200,6 +209,7 @@ def setup_gui():
     root.config(menu=menubar)
 
     return root
+
 
 # GUI 실행
 if __name__ == "__main__":
