@@ -5,10 +5,11 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import chardet
 import threading  # 스레딩 모듈 추가
+import webbrowser
 
 # 제작자 및 버전 정보
 AUTHOR = "운양고등학교 이종환T"
-VERSION = "2024-10-10"
+VERSION = "2024.10.11-PyMuPDF"
 
 # 접미사 변수 선언
 HIGHLIGHTED_SUFFIX = '_highlighted.pdf'
@@ -151,14 +152,32 @@ def process_files(pdf_file_path, csv_file_path, status_message_var):
     messagebox.showinfo("결과", message)  # 최종 결과를 한 번만 표시
 
 
+def show_program_info():
+    info_title = "프로그램 정보"
+    info_message = (
+        f"제작자: {AUTHOR}\n"
+        f"버전: {VERSION}\n"
+        "\n"
+        "PDFWordFinder는 CSV 파일에 있는 단어 목록을 PDF 파일에서 검색하여 각 단어가 포함된 페이지 번호를 알려주는 Python 프로그램입니다.\n"
+        "\n"
+        "이 프로그램은 LGPL-2.1 라이선스 하에 배포되며, 자유롭게 사용 및 수정할 수 있습니다."
+    )
+
+    messagebox.showinfo(info_title, info_message)
+
+
+def open_github():
+    webbrowser.open("https://github.com/itmir913/PDFWordFinder/releases")
+
+
 # GUI 창 설정
 def setup_gui():
     root = tk.Tk()
-    root.title("PDFWordFinder")
+    root.title("PDFWordFinder(PyMuPDF)")
 
     # 창 크기 설정
-    window_width = 400
-    window_height = 250
+    window_width = 500
+    window_height = 230
     root.geometry(f"{window_width}x{window_height}")
     root.resizable(False, False)  # 창 크기 고정
 
@@ -189,9 +208,17 @@ def setup_gui():
     exit_button = tk.Button(frame, text="종료", command=root.quit, padx=10, pady=5)
     exit_button.pack(pady=5)
 
-    # 만든이 정보 라벨 추가
-    author_label = tk.Label(frame, text=f"제작자: {AUTHOR}\n버전: {VERSION}", padx=20, pady=2)
-    author_label.pack()
+    # 메뉴바 생성
+    menubar = tk.Menu(root)
+
+    # About 메뉴 생성
+    about_menu = tk.Menu(menubar, tearoff=0)
+    about_menu.add_command(label="프로그램 정보", command=show_program_info)
+    about_menu.add_command(label="GitHub 바로가기", command=open_github)
+    menubar.add_cascade(label="About", menu=about_menu)
+
+    # 메뉴바를 메인 윈도우에 추가
+    root.config(menu=menubar)
 
     return root
 

@@ -5,19 +5,22 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import chardet
 import threading  # 스레딩 모듈 추가
+import webbrowser
 
 # 제작자 및 버전 정보
 AUTHOR = "운양고등학교 이종환T"
-VERSION = "2024-10-10"
+VERSION = "2024.10.11-PyPDF2"
 
 # 접미사 변수 선언
 SYNONYM_COUNTS_SUFFIX = '_words_counts.txt'
+
 
 # CSV 파일의 인코딩 자동 감지
 def detect_encoding(file_path):
     with open(file_path, 'rb') as f:
         result = chardet.detect(f.read())
         return result['encoding']
+
 
 # CSV 파일에서 단어 목록 읽기 (제너레이터)
 def read_synonyms_from_csv(csv_file):
@@ -30,6 +33,7 @@ def read_synonyms_from_csv(csv_file):
     except Exception as e:
         raise IOError(f"CSV 파일을 읽는 중 오류 발생: {str(e)}")
 
+
 # 발견된 단어 정보를 txt 파일로 저장
 def save_synonym_counts_to_txt(synonym_counts, output_file):
     try:
@@ -38,6 +42,7 @@ def save_synonym_counts_to_txt(synonym_counts, output_file):
                 f.write(f"{synonym}: {len(pages)}번 발견, 페이지: {', '.join(map(str, pages))}\n")
     except Exception as e:
         raise IOError(f"결과를 저장하는 중 오류 발생: {str(e)}")
+
 
 # PDF에서 단어 강조 및 결과 처리
 def highlight_words_in_pdf(pdf_path, csv_file, status_message_var):
@@ -68,6 +73,7 @@ def highlight_words_in_pdf(pdf_path, csv_file, status_message_var):
     except Exception as e:
         return False, {}, None, str(e)  # 오류 메시지 반환
 
+
 # 페이지에서 단어 강조
 def highlight_page_with_synonyms(text, csv_file, synonym_counts, page_num):
     for word in read_synonyms_from_csv(csv_file):
@@ -77,12 +83,14 @@ def highlight_page_with_synonyms(text, csv_file, synonym_counts, page_num):
                 synonym_counts[word] = []
             synonym_counts[word].append(page_num)
 
+
 # 결과 알림 메시지 생성
 def create_result_message(found_any_synonym, synonym_counts, txt_output_path):
     if found_any_synonym:
         # 단어 발견 횟수를 문자열로 변환
         synonym_report = "\n".join(
-            [f"{synonym}: {len(pages)}번 발견, 페이지: {', '.join(map(str, pages))}" for synonym, pages in synonym_counts.items()]
+            [f"{synonym}: {len(pages)}번 발견, 페이지: {', '.join(map(str, pages))}" for synonym, pages in
+             synonym_counts.items()]
         )
 
         message = (
@@ -96,6 +104,7 @@ def create_result_message(found_any_synonym, synonym_counts, txt_output_path):
         return message, txt_output_path  # 메시지와 txt 경로 반환
     else:
         return "단어가 발견되지 않아 검색을 종료합니다.", None  # 메시지와 None 반환
+
 
 # PDF 및 CSV 파일 선택
 def select_files(status_message_var):
@@ -111,6 +120,7 @@ def select_files(status_message_var):
 
     # 스레드에서 파일 처리 수행
     threading.Thread(target=process_files, args=(pdf_file_path, csv_file_path, status_message_var)).start()
+
 
 # 파일 처리 스레드 함수
 def process_files(pdf_file_path, csv_file_path, status_message_var):
@@ -129,14 +139,33 @@ def process_files(pdf_file_path, csv_file_path, status_message_var):
     status_message_var.set("완료")  # 완료 상태로 변경
     messagebox.showinfo("결과", message)  # 최종 결과를 한 번만 표시
 
+
+def show_program_info():
+    info_title = "프로그램 정보"
+    info_message = (
+        f"제작자: {AUTHOR}\n"
+        f"버전: {VERSION}\n"
+        "\n"
+        "PDFWordFinder는 CSV 파일에 있는 단어 목록을 PDF 파일에서 검색하여 각 단어가 포함된 페이지 번호를 알려주는 Python 프로그램입니다.\n"
+        "\n"
+        "이 프로그램은 LGPL-2.1 라이선스 하에 배포되며, 자유롭게 사용 및 수정할 수 있습니다."
+    )
+
+    messagebox.showinfo(info_title, info_message)
+
+
+def open_github():
+    webbrowser.open("https://github.com/itmir913/PDFWordFinder/releases")
+
+
 # GUI 창 설정
 def setup_gui():
     root = tk.Tk()
-    root.title("PDFWordFinder")
+    root.title("PDFWordFinder(PyPDF2)")
 
     # 창 크기 설정
-    window_width = 400
-    window_height = 250
+    window_width = 500
+    window_height = 230
     root.geometry(f"{window_width}x{window_height}")
     root.resizable(False, False)  # 창 크기 고정
 
@@ -167,11 +196,20 @@ def setup_gui():
     exit_button = tk.Button(frame, text="종료", command=root.quit, padx=10, pady=5)
     exit_button.pack(pady=5)
 
-    # 만든이 정보 라벨 추가
-    author_label = tk.Label(frame, text=f"제작자: {AUTHOR}\n버전: {VERSION}", padx=20, pady=2)
-    author_label.pack()
+    # 메뉴바 생성
+    menubar = tk.Menu(root)
+
+    # About 메뉴 생성
+    about_menu = tk.Menu(menubar, tearoff=0)
+    about_menu.add_command(label="프로그램 정보", command=show_program_info)
+    about_menu.add_command(label="GitHub 바로가기", command=open_github)
+    menubar.add_cascade(label="About", menu=about_menu)
+
+    # 메뉴바를 메인 윈도우에 추가
+    root.config(menu=menubar)
 
     return root
+
 
 # GUI 실행
 if __name__ == "__main__":
