@@ -29,12 +29,12 @@ PDFWordFinder는 CSV 파일에 있는 단어 목록을 PDF 파일에서 검색�
 3. 프로그램이 PDF 파일을 처리합니다.
 
 ## CSV 파일 형식
-CSV 파일은 `synonym`이라는 열을 포함해야 하며, 이 열에는 검색할 단어어 목록이 들어 있어야 합니다.  
+CSV 파일은 `words`이라는 열을 포함해야 하며, 이 열에는 검색할 단어의 목록이 들어 있어야 합니다.  
 
 예시:
 
 ```
-synonym
+words
 example1
 example2
 ```

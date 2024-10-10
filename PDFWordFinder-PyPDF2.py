@@ -11,7 +11,7 @@ AUTHOR = "운양고등학교 이종환T"
 VERSION = "2024-10-10"
 
 # 접미사 변수 선언
-SYNONYM_COUNTS_SUFFIX = '_synonym_counts.txt'
+SYNONYM_COUNTS_SUFFIX = '_words_counts.txt'
 
 # CSV 파일의 인코딩 자동 감지
 def detect_encoding(file_path):
@@ -19,18 +19,18 @@ def detect_encoding(file_path):
         result = chardet.detect(f.read())
         return result['encoding']
 
-# CSV 파일에서 유의어 목록 읽기 (제너레이터)
+# CSV 파일에서 단어 목록 읽기 (제너레이터)
 def read_synonyms_from_csv(csv_file):
     encoding = detect_encoding(csv_file)
     try:
         with open(csv_file, mode='r', newline='', encoding=encoding) as file:
             reader = csv.DictReader(file)
             for row in reader:
-                yield row['synonym']
+                yield row['words']
     except Exception as e:
-        raise IOError(f"유의어 CSV 파일을 읽는 중 오류 발생: {str(e)}")
+        raise IOError(f"CSV 파일을 읽는 중 오류 발생: {str(e)}")
 
-# 발견된 유의어 정보를 txt 파일로 저장
+# 발견된 단어 정보를 txt 파일로 저장
 def save_synonym_counts_to_txt(synonym_counts, output_file):
     try:
         with open(output_file, 'w', encoding='utf-8') as f:
@@ -39,7 +39,7 @@ def save_synonym_counts_to_txt(synonym_counts, output_file):
     except Exception as e:
         raise IOError(f"결과를 저장하는 중 오류 발생: {str(e)}")
 
-# PDF에서 유의어 강조 및 결과 처리
+# PDF에서 단어 강조 및 결과 처리
 def highlight_words_in_pdf(pdf_path, csv_file, status_message_var):
     try:
         doc = PyPDF2.PdfReader(pdf_path)
@@ -57,22 +57,22 @@ def highlight_words_in_pdf(pdf_path, csv_file, status_message_var):
         found_any_synonym = any(len(pages) > 0 for pages in synonym_counts.values())
 
         if found_any_synonym:
-            # 유의어 발견 횟수를 txt 파일로 저장
+            # 단어 발견 횟수를 txt 파일로 저장
             txt_output_path = pdf_path[:-4] + SYNONYM_COUNTS_SUFFIX
             save_synonym_counts_to_txt(synonym_counts, txt_output_path)
 
             return found_any_synonym, synonym_counts, txt_output_path  # txt 파일 경로 반환
         else:
-            return found_any_synonym, {}, None  # 유의어 발견되지 않음
+            return found_any_synonym, {}, None  # 단어 발견되지 않음
 
     except Exception as e:
         return False, {}, None, str(e)  # 오류 메시지 반환
 
-# 페이지에서 유의어 강조
+# 페이지에서 단어 강조
 def highlight_page_with_synonyms(text, csv_file, synonym_counts, page_num):
     for word in read_synonyms_from_csv(csv_file):
         if word in text:
-            # 발견된 유의어의 카운트를 업데이트
+            # 발견된 단어의 카운트를 업데이트
             if word not in synonym_counts:
                 synonym_counts[word] = []
             synonym_counts[word].append(page_num)
@@ -80,26 +80,26 @@ def highlight_page_with_synonyms(text, csv_file, synonym_counts, page_num):
 # 결과 알림 메시지 생성
 def create_result_message(found_any_synonym, synonym_counts, txt_output_path):
     if found_any_synonym:
-        # 유의어 발견 횟수를 문자열로 변환
+        # 단어 발견 횟수를 문자열로 변환
         synonym_report = "\n".join(
             [f"{synonym}: {len(pages)}번 발견, 페이지: {', '.join(map(str, pages))}" for synonym, pages in synonym_counts.items()]
         )
 
         message = (
-            "주의! 유의어가 발견되었습니다.\n\n"
-            f"발견된 유의어 목록:\n{synonym_report}\n"
+            "PDF 파일 검색 결과 단어가 발견되었습니다!\n\n"
+            f"발견된 단어 목록:\n{synonym_report}\n"
         )
 
         message += (
-            f"\n유의어 발견 횟수가 {txt_output_path}에 저장되었습니다."
+            f"\n단어 발견 횟수가 {txt_output_path}에 저장되었습니다."
         )
         return message, txt_output_path  # 메시지와 txt 경로 반환
     else:
-        return "유의어가 발견되지 않아 검색을 종료합니다.", None  # 메시지와 None 반환
+        return "단어가 발견되지 않아 검색을 종료합니다.", None  # 메시지와 None 반환
 
 # PDF 및 CSV 파일 선택
 def select_files(status_message_var):
-    csv_file_path = filedialog.askopenfilename(title="유의어 CSV 파일 선택", filetypes=[("CSV files", "*.csv")])
+    csv_file_path = filedialog.askopenfilename(title="CSV 파일 선택", filetypes=[("CSV files", "*.csv")])
     pdf_file_path = filedialog.askopenfilename(title="PDF 파일 선택", filetypes=[("PDF files", "*.pdf")])
 
     if not csv_file_path or not pdf_file_path:
@@ -132,11 +132,11 @@ def process_files(pdf_file_path, csv_file_path, status_message_var):
 # GUI 창 설정
 def setup_gui():
     root = tk.Tk()
-    root.title("PDF 유의어 검색 프로그램")
+    root.title("PDFWordFinder")
 
     # 창 크기 설정
     window_width = 400
-    window_height = 300
+    window_height = 250
     root.geometry(f"{window_width}x{window_height}")
     root.resizable(False, False)  # 창 크기 고정
 
@@ -152,7 +152,7 @@ def setup_gui():
     frame.pack(padx=20, pady=10)
 
     # 라벨 및 버튼 가운데 정렬
-    label = tk.Label(frame, text="PDF 파일에서 유의어를 검색합니다.", padx=20, pady=5)
+    label = tk.Label(frame, text="PDF 단어 검색 프로그램.", padx=20, pady=5)
     label.pack()
 
     # 초기 상태 메시지 추가
