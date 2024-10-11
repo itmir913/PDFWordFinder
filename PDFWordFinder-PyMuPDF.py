@@ -1,6 +1,7 @@
 import fitz  # PyMuPDF
 import csv
 import os
+import platform
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import chardet
@@ -91,6 +92,15 @@ def highlight_page_with_synonyms(page, csv_file, synonym_counts, page_num):
                 highlight.update()
 
 
+def open_file(file_path):
+    if platform.system() == "Windows":
+        os.startfile(file_path)
+    elif platform.system() == "Darwin":  # macOS
+        os.system(f"open {file_path}")
+    else:  # Linux
+        os.system(f"xdg-open {file_path}")
+
+
 # 결과 알림 메시지 생성
 def create_result_message(found_any_synonym, synonym_counts, highlighted_pdf_path):
     if found_any_synonym:
@@ -150,6 +160,7 @@ def process_files(pdf_file_path, csv_file_path, status_message_var):
     # 완료 상태 업데이트
     status_message_var.set("완료")  # 완료 상태로 변경
     messagebox.showinfo("결과", message)  # 최종 결과를 한 번만 표시
+    open_file(highlighted_pdf_path)
 
 
 def show_program_info():
