@@ -105,10 +105,7 @@ def open_file(file_path):
 def create_result_message(found_any_synonym, synonym_counts, highlighted_pdf_path):
     if found_any_synonym:
         # 단어 발견 횟수를 문자열로 변환
-        synonym_report = "\n".join(
-            [f"{synonym}: {len(pages)}번 발견, 페이지: {', '.join(map(str, pages))}" for synonym, pages in
-             synonym_counts.items()]
-        )
+        synonym_report = ", ".join(synonym for synonym in synonym_counts.keys())
 
         message = (
             "PDF 파일 검색 결과 단어가 발견되었습니다!\n\n"
