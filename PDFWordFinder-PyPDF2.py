@@ -10,7 +10,7 @@ import webbrowser
 
 # 제작자 및 버전 정보
 AUTHOR = "운양고등학교 이종환T"
-VERSION = "2024.10.11-PyPDF2"
+VERSION = "2024.10.13-PyPDF2"
 
 # 접미사 변수 선언
 SYNONYM_COUNTS_SUFFIX = '_words_counts.txt'
@@ -98,10 +98,7 @@ def open_file(file_path):
 def create_result_message(found_any_synonym, synonym_counts, txt_output_path):
     if found_any_synonym:
         # 단어 발견 횟수를 문자열로 변환
-        synonym_report = "\n".join(
-            [f"{synonym}: {len(pages)}번 발견, 페이지: {', '.join(map(str, pages))}" for synonym, pages in
-             synonym_counts.items()]
-        )
+        synonym_report = ", ".join(synonym for synonym in synonym_counts.keys())
 
         message = (
             "PDF 파일 검색 결과 단어가 발견되었습니다!\n\n"
