@@ -10,7 +10,7 @@ import webbrowser
 
 # 제작자 및 버전 정보
 AUTHOR = "운양고등학교 이종환T"
-VERSION = "2024.10.11-PyPDF2"
+VERSION = "2024.10.13-PyPDF2"
 
 # 접미사 변수 선언
 SYNONYM_COUNTS_SUFFIX = '_words_counts.txt'
