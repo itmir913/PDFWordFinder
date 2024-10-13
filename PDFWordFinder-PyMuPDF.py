@@ -10,7 +10,7 @@ import webbrowser
 
 # 제작자 및 버전 정보
 AUTHOR = "운양고등학교 이종환T"
-VERSION = "2024.10.11-PyMuPDF"
+VERSION = "2024.10.13-PyMuPDF"
 
 # 접미사 변수 선언
 HIGHLIGHTED_SUFFIX = '_highlighted.pdf'
