@@ -20,6 +20,7 @@ const store = useAppStore();
       <li>검색할 단어들이 나열된 <strong>CSV 파일</strong>을 준비합니다.</li>
       <li>[CSV 파일 불러오기] 버튼을 누르거나 화면에 CSV 파일을 <strong>드래그 앤 드롭</strong>하여 등록하세요.</li>
       <li>CSV 파일은 첫 번째 열(Column)에 검색할 단어들이 입력되어 있어야 합니다.</li>
+      <li><strong>첫 번째 줄은 제목 행으로 보고 건너뜁니다.</strong> 단어는 두 번째 줄부터 적으세요.</li>
     </ul>
 
     <h3 class="text-lg font-bold text-primary mt-6 mb-2">📌 Step 2. 검색 대상 파일 추가</h3>

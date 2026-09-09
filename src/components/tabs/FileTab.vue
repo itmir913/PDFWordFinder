@@ -9,6 +9,7 @@ const STATUS_CLASS = {
   '처리중': 'bg-status-processing',
   '성공': 'bg-status-done',
   '실패': 'bg-status-failed',
+  '중단': 'bg-status-stopped',
 };
 </script>
 

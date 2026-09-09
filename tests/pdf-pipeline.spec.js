@@ -6,13 +6,13 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import {
   PDFDocument, StandardFonts,
-  beginText, endText, setFontAndSize, setTextMatrix, showText,
+  beginText, endText, setFontAndSize, setTextMatrix, showText, setCharacterSpacing,
 } from 'pdf-lib';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { createCanvas } from '@napi-rs/canvas';
 import { fileURLToPath } from 'node:url';
 import { findKeywordRectsAndKeywords, addHighlightAnnotation, addOutlines } from '../src/workers/lib/pdf-highlight.js';
-import { buildPattern } from '../src/workers/lib/keywords.js';
+import { buildCompactPattern } from '../src/workers/lib/keywords.js';
 
 // Node에서 pdfjs는 이 값을 fs 경로로 읽는다. file:// URL은 못 읽고,
 // 윈도우 역슬래시 경로는 "must include trailing slash"로 거부당한다.
@@ -33,7 +33,7 @@ const openPdf = bytes =>
 // 0이 아니라 8.6e-16이라, NEIS 문서의 진짜 행렬([0 s -s 0 e f])을 재현하지 못하고
 // 오늘 버그를 그냥 통과시킨다.
 const SIZE = 14;
-async function makePdf({ lines, rotate = 0 }) {
+async function makePdf({ lines, rotate = 0, charSpacing = 0 }) {
   const doc = await PDFDocument.create();
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const page = doc.addPage([400, 300]);
@@ -49,6 +49,7 @@ async function makePdf({ lines, rotate = 0 }) {
       : [1, 0, 0, 1, 40, 240 - i * 40];
     page.pushOperators(
       beginText(),
+      setCharacterSpacing(charSpacing),
       setFontAndSize(fontKey, SIZE),
       setTextMatrix(...matrix),
       showText(font.encodeText(text)),
@@ -60,7 +61,7 @@ async function makePdf({ lines, rotate = 0 }) {
 
 // 워커의 processPdf와 같은 순서로 돌린다 (파일 입출력만 뺀 것).
 async function highlight(srcBytes, keywords) {
-  const { pattern, kwMap } = buildPattern(keywords);
+  const { pattern, kwMap } = buildCompactPattern(keywords);
   const src = await openPdf(srcBytes);
 
   const perPage = [];
@@ -211,5 +212,35 @@ describe('이미 하이라이트가 있는 PDF를 다시 처리할 때', () => {
     const first = await highlight(await makePdf({ lines: LINES }), ['toeic']);
     const second = await highlight(first.bytes, ['toeic']);
     expect(await highlightsOf(second.bytes)).toHaveLength(4);
+  });
+});
+
+// 회귀: pdfjs는 자간(Tc)이 임계값을 넘으면 item.str 안에 공백을 스스로
+// 끼워 넣는다('TOEIC' → 'T O E I C'). 원문 그대로 매칭하던 시절에는
+// 자간을 벌린 PDF에서 단어를 하나도 못 찾고 '탐지 0건'으로 끝났다.
+// NEIS/HWP 문서는 표 칸에 글자를 맞추려고 자간을 흔히 조정한다.
+describe('자간이 벌어진 PDF', () => {
+  it('pdfjs가 글자 사이에 공백을 끼워 넣는 것을 실제로 확인한다', async () => {
+    const pdf = await openPdf(await makePdf({ lines: ['gochul TOEIC sihum'], charSpacing: 3 }));
+    const { items } = await (await pdf.getPage(1)).getTextContent();
+    const raw = items.map(i => i.str).join('');
+    expect(raw).not.toContain('TOEIC'); // 이 전제가 깨지면 아래 테스트는 무의미하다
+  });
+
+  it('자간이 벌어져도 단어를 찾아 하이라이트한다', async () => {
+    const { bytes, found } = await highlight(
+      await makePdf({ lines: ['gochul TOEIC sihum'], charSpacing: 3 }),
+      ['TOEIC'],
+    );
+    expect(found).toBeGreaterThan(0);
+    expect(await yellowPixels(bytes)).toBeGreaterThan(50);
+  });
+
+  it('자간이 벌어진 회전 텍스트에서도 찾는다', async () => {
+    const { found } = await highlight(
+      await makePdf({ lines: ['gochul TOEIC sihum'], rotate: 90, charSpacing: 3 }),
+      ['TOEIC'],
+    );
+    expect(found).toBeGreaterThan(0);
   });
 });
