@@ -6,7 +6,8 @@ import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 import { PDFDocument } from 'pdf-lib';
 import { findKeywordRectsAndKeywords, addOutlines, addHighlightAnnotation } from './lib/pdf-highlight.js';
-import { buildPattern, buildCompactPattern, findKeywordsInRow } from './lib/keywords.js';
+import { buildPattern, buildCompactPattern } from './lib/keywords.js';
+import { buildSheetResult, dateFormatFor, SHEET_READ_OPTIONS } from './lib/excel.js';
 import pdfjsWorkerSrc from 'pdfjs-dist/build/pdf.worker.mjs?url';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerSrc;
@@ -129,44 +130,28 @@ async function processExcel({ id, name, outputPath, data, keywords, detectConsec
 
   const { pattern, kwMap } = buildPattern(keywords);
 
-  // SheetJS로 읽기
-  const wb = XLSX.read(data, { type: 'array' });
+  const wb = XLSX.read(data, SHEET_READ_OPTIONS);
 
   const excelWb = new ExcelJS.Workbook();
   let totalDetectedCount = 0;
   let totalRowCount = 0;
 
   for (const wsName of wb.SheetNames) {
-    const ws = wb.Sheets[wsName];
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-    const rawHeader = rows[0] ?? [];
-
-    // 이미 처리된 파일 재실행 시 기존 결과 컬럼 제거
-    const removeIndices = new Set(
-      rawHeader.map((h, i) => (h === '발견여부' || h === '발견된 단어') ? i : -1).filter(i => i >= 0)
-    );
-    const header = rawHeader.filter((_, i) => !removeIndices.has(i));
-
-    const outputHeader = [...header, '발견여부', '발견된 단어'];
-    const resultRows = [outputHeader];
-    let detectedCount = 0;
-
-    for (let r = 1; r < rows.length; r++) {
-      const row = rows[r].filter((_, i) => !removeIndices.has(i));
-      const sorted = findKeywordsInRow(row, pattern, kwMap, detectConsecutiveSpaces);
-      const detected = sorted.length > 0;
-      if (detected) detectedCount++;
-      resultRows.push([...row, detected ? 'TRUE' : 'FALSE', sorted.join(', ')]);
-    }
-
-    // ExcelJS로 시트 추가 (노란색 행 강조 포함)
-    const detectedColIndex = outputHeader.indexOf('발견여부'); // 0-based
-    const colCount = outputHeader.length;
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wsName], { header: 1, defval: '' });
+    const { resultRows, detectedCount, rowCount, detectedColIndex } =
+      buildSheetResult(rows, pattern, kwMap, detectConsecutiveSpaces);
 
     const excelWs = excelWb.addWorksheet(wsName);
+    const colCount = resultRows[0].length;
 
     for (let r = 0; r < resultRows.length; r++) {
       const excelRow = excelWs.addRow(resultRows[r]);
+
+      for (let c = 1; c <= colCount; c++) {
+        const cell = excelRow.getCell(c);
+        const numFmt = dateFormatFor(cell.value);
+        if (numFmt) cell.numFmt = numFmt;
+      }
 
       if (r > 0 && resultRows[r][detectedColIndex] === 'TRUE') {
         for (let c = 1; c <= colCount; c++) {
@@ -180,7 +165,7 @@ async function processExcel({ id, name, outputPath, data, keywords, detectConsec
     }
 
     totalDetectedCount += detectedCount;
-    totalRowCount += resultRows.length - 1;
+    totalRowCount += rowCount;
   }
 
   const buffer = await excelWb.xlsx.writeBuffer();
@@ -192,6 +177,6 @@ async function processExcel({ id, name, outputPath, data, keywords, detectConsec
   );
   self.postMessage({
     type: 'log',
-    message: `✅ Excel 완료 | ${wb.SheetNames.length}개 시트, 전체 ${totalRowCount}행 중 탐지 ${totalDetectedCount}행 → ${outputPath}`,
+    message: `✅ Excel 변환 완료 | ${wb.SheetNames.length}개 시트, 전체 ${totalRowCount}행 중 탐지 ${totalDetectedCount}행`,
   });
 }
