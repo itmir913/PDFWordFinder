@@ -7,6 +7,9 @@ import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
+const LOG_LIMIT = 5000;
+const RELEASES_API = 'https://api.github.com/repos/itmir913/WordFinderApp/releases/latest';
+
 export const useAppStore = defineStore('app', {
   state: () => ({
     version: '',
@@ -361,18 +364,28 @@ export const useAppStore = defineStore('app', {
     addLog(message) {
       const now = new Date().toLocaleTimeString('ko-KR');
       this.logs.push(`[${now}] ${message}`);
+      // 앱을 켜 둔 채 수백 파일을 여러 번 돌리면 배열과 DOM 노드가 계속 쌓인다.
+      if (this.logs.length > LOG_LIMIT) this.logs.splice(0, this.logs.length - LOG_LIMIT);
     },
 
     // ── 최신버전 확인 ────────────────────────────────
     async fetchLatestVersion() {
+      // 탭을 오갈 때마다 부르면 인증 없는 GitHub API 시간당 60회 제한에 걸린다.
+      // 학교처럼 여럿이 같은 공인 IP를 쓰면 더 빨리 걸린다.
+      if (this.latestVersion !== null) return;
+
       try {
-        const res = await fetch('https://api.github.com/repos/itmir913/WordFinderApp/releases/latest');
+        const res = await fetch(RELEASES_API);
+        // res.ok를 안 보면 rate limit(403)이나 404도 JSON 파싱에 성공한 뒤
+        // tag_name === undefined로 흘러가 네트워크 오류와 구별되지 않는다.
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         this.latestVersion = data.tag_name ?? '';
         this.latestReleaseUrl = data.html_url ?? '';
-      } catch {
+      } catch (e) {
         this.latestVersion = '';
         this.latestReleaseUrl = '';
+        this.addLog(`⚠️ 최신버전 확인 실패: ${e}`);
       }
     },
 

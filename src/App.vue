@@ -47,7 +47,9 @@ onMounted(() => store.init());
 
         <!-- 탭 콘텐츠 -->
         <div class="flex-1 min-h-0 overflow-auto">
-          <component :is="TABS[store.activeTab].component" />
+          <KeepAlive>
+            <component :is="TABS[store.activeTab].component" />
+          </KeepAlive>
         </div>
       </div>
 
