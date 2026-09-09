@@ -98,7 +98,9 @@ async function processPdf({ id, name, outputPath, data, keywords, detectConsecut
   try {
     pdfDoc = await PDFDocument.load(data);
   } catch (e) {
-    if (String(e).includes('encrypted')) {
+    // 메시지 문구가 아니라 예외 종류로 판정한다. pdf-lib이 문구를 바꾸면
+    // 조용히 rethrow되어 사용자는 원인 불명 실패만 보게 된다.
+    if (e?.name === 'EncryptedPDFError' || String(e).includes('encrypted')) {
       self.postMessage({
         type: 'error', id, name,
         message: '암호화(보안 설정)된 PDF는 하이라이트를 추가할 수 없습니다. 보안 해제 후 다시 시도하세요.',
