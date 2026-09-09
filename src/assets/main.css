@@ -3,6 +3,7 @@
 
 @theme {
   --font-sans: 'Pretendard Variable', Pretendard, 'Malgun Gothic', 'Segoe UI', sans-serif;
+  --font-mono: Consolas, Menlo, 'Courier New', monospace;
 
   --color-app-bg: #F8F9FA;
   --color-app-border: #CED4DA;
@@ -24,6 +25,19 @@
   --color-status-stopped: #E9ECEF;
 }
 
-*, code, pre, kbd, samp {
-  font-family: var(--font-sans);
+/* 레이어 밖에 두면 안 된다. 캐스케이드 규칙상 언레이어드 선언이 모든
+   레이어드 선언을 이기므로, Tailwind가 @layer utilities에 넣는 font-mono
+   같은 폰트 유틸리티가 명시도와 무관하게 통째로 무시된다.
+
+   선택자도 *가 아니라 상속 기점이어야 한다. *로 걸면 .font-mono를 준
+   컨테이너의 자식들이 다시 sans로 덮여, 로그 창이 절반만 모노스페이스가 된다.
+   code/pre/kbd/samp는 preflight가 mono를 박아 두므로 명시적으로 되돌린다. */
+@layer base {
+  body,
+  code,
+  pre,
+  kbd,
+  samp {
+    font-family: var(--font-sans);
+  }
 }
