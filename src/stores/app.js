@@ -312,7 +312,12 @@ export const useAppStore = defineStore('app', {
           case 'result': {
             const write = (async () => {
               try {
-                await invoke('write_file_bytes', { path: msg.outputPath, data: Array.from(msg.data) });
+                // 원시 바이트로 보낸다. Array.from은 2천만 원소짜리 JS 배열을
+                // 만들고, 그것이 다시 JSON 숫자 배열로 직렬화됐다.
+                // 경로는 헤더로 — 원시 본문에는 인자를 함께 싣지 못한다.
+                await invoke('write_file_bytes', msg.data, {
+                  headers: { path: encodeURIComponent(msg.outputPath) },
+                });
                 this.updateFileStatus(msg.id, '성공');
                 this.addLog(`✅ 저장 완료 → ${msg.outputPath}`);
               } catch (e) {

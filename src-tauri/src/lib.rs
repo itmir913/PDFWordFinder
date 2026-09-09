@@ -127,25 +127,68 @@ fn load_default_csv() -> CsvLoadResult {
     }
 }
 
+// 바이트를 Vec<u8>로 돌려주면 serde_json이 [37,80,68,70,...] 형태의 JSON
+// 숫자 배열로 직렬화한다. 20MB PDF가 IPC 문자열 70MB로 부풀고, 웹뷰는
+// 그것을 다시 파싱한다. Response로 감싸면 원시 바이트로 건너가 ArrayBuffer로
+// 받는다.
 #[tauri::command]
-fn read_file_bytes(path: String) -> Result<Vec<u8>, String> {
+fn read_file_bytes(path: String) -> Result<tauri::ipc::Response, String> {
     let path = PathBuf::from(path);
     ensure_readable(&path)?;
-    std::fs::read(&path).map_err(|e| e.to_string())
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
+// 헤더 값은 ASCII만 담을 수 있어 프런트엔드가 encodeURIComponent로 보낸다.
+fn percent_decode(input: &str) -> Result<String, String> {
+    let bytes = input.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'%' {
+            out.push(bytes[i]);
+            i += 1;
+            continue;
+        }
+        let hex = bytes
+            .get(i + 1..i + 3)
+            .and_then(|h| std::str::from_utf8(h).ok())
+            .and_then(|h| u8::from_str_radix(h, 16).ok())
+            .ok_or_else(|| "경로 인코딩이 잘못되었습니다.".to_string())?;
+        out.push(hex);
+        i += 3;
+    }
+    String::from_utf8(out).map_err(|_| "경로가 UTF-8이 아닙니다.".to_string())
+}
+
+// 쓰기도 같은 이유로 원시 바이트를 받는다. 경로는 헤더에 실어 보낸다 —
+// 원시 본문 커맨드는 본문 전체가 바이트라서 인자를 함께 못 싣는다.
 #[tauri::command]
-fn write_file_bytes(path: String, data: Vec<u8>) -> Result<(), String> {
-    let path = PathBuf::from(path);
+fn write_file_bytes(request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let encoded = request
+        .headers()
+        .get("path")
+        .and_then(|value| value.to_str().ok())
+        .ok_or_else(|| "경로 헤더가 없습니다.".to_string())?;
+    let path = PathBuf::from(percent_decode(encoded)?);
     ensure_writable(&path)?;
 
-    // 임시 파일에 쓰고 바꿔치기한다. std::fs::write는 곧바로 대상 파일을
-    // 잘라내므로, 대용량 PDF를 쓰다가 디스크가 차거나 프로세스가 죽으면
-    // 손상된 결과 파일이 남는다.
+    let data = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) => bytes,
+        _ => return Err("바이트 본문이 아닙니다.".to_string()),
+    };
+
+    write_bytes_atomically(&path, data)
+}
+
+// 임시 파일에 쓰고 바꿔치기한다. std::fs::write는 곧바로 대상 파일을
+// 잘라내므로, 대용량 PDF를 쓰다가 디스크가 차거나 프로세스가 죽으면
+// 손상된 결과 파일이 남는다.
+fn write_bytes_atomically(path: &Path, data: &[u8]) -> Result<(), String> {
     let temp = path.with_extension("part");
     std::fs::write(&temp, data).map_err(|e| e.to_string())?;
 
-    if let Err(e) = std::fs::rename(&temp, &path) {
+    if let Err(e) = std::fs::rename(&temp, path) {
         let _ = std::fs::remove_file(&temp);
         return Err(e.to_string());
     }
@@ -191,18 +234,32 @@ mod tests {
     }
 
     #[test]
+    fn percent_decode_restores_korean_paths() {
+        assert_eq!(
+            percent_decode("C%3A%2Fa%2Foutput_%EC%83%9D%EA%B8%B0%EB%B6%80.pdf").unwrap(),
+            "C:/a/output_생기부.pdf"
+        );
+        assert_eq!(
+            percent_decode("C:/a/output_b.pdf").unwrap(),
+            "C:/a/output_b.pdf"
+        );
+        assert!(percent_decode("%E").is_err());
+        assert!(percent_decode("%ZZ").is_err());
+    }
+
+    #[test]
     fn atomic_write_leaves_no_temp_file() {
         let dir = std::env::temp_dir().join("wordfinder_write_test");
         std::fs::create_dir_all(&dir).unwrap();
         let target = dir.join("output_t.pdf");
 
-        write_file_bytes(target.to_string_lossy().into_owned(), b"%PDF-1.4".to_vec()).unwrap();
+        write_bytes_atomically(&target, b"%PDF-1.4").unwrap();
 
         assert_eq!(std::fs::read(&target).unwrap(), b"%PDF-1.4");
         assert!(!target.with_extension("part").exists());
 
         // 덮어쓰기도 동작한다
-        write_file_bytes(target.to_string_lossy().into_owned(), b"%PDF-2.0".to_vec()).unwrap();
+        write_bytes_atomically(&target, b"%PDF-2.0").unwrap();
         assert_eq!(std::fs::read(&target).unwrap(), b"%PDF-2.0");
 
         std::fs::remove_dir_all(&dir).unwrap();
