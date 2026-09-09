@@ -1,0 +1,14 @@
+# 저장소와 작업 트리의 줄바꿈을 모두 LF로 통일한다.
+#
+# 윈도우 체크아웃만 CRLF가 되면서 로컬은 통과하고 CI(windows)만 깨지는 일이
+# 실제로 있었다 — Vite가 셔뱅 + CRLF를 SyntaxError로 만들었다.
+* text=auto eol=lf
+
+# 바이너리는 줄바꿈 변환 대상이 아니다.
+*.png binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+*.xlsx binary

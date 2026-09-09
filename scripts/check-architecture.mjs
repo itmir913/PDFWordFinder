@@ -1,5 +1,8 @@
-#!/usr/bin/env node
 // CLAUDE.md의 아키텍처 규칙을 기계로 강제한다.
+//
+// 셔뱅(#!)을 두지 않는다. package.json은 `node scripts/...`로 부르므로 필요 없고,
+// tests/check-architecture.spec.js가 이 파일을 import할 때 Vite의 트랜스폼이
+// 셔뱅 + CRLF 조합을 SyntaxError로 만든다 — 윈도우 체크아웃에서만 터진다.
 // 사람이 리뷰에서 놓치기 쉬운 것만 골랐다 — 규칙을 늘릴 거면 여기에 더한다.
 //
 // 파일을 통째로 읽어 검사한다. 예전에는 줄 단위로 훑어서, 여러 줄에 걸친
