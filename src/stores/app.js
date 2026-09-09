@@ -14,7 +14,7 @@ export const useAppStore = defineStore('app', {
     keywords: [],
 
     // 파일 목록
-    files: [], // { id, name, path, status: '대기'|'처리중'|'성공'|'실패' }
+    files: [], // { id, name, path, status: '대기'|'처리중'|'성공'|'실패'|'중단' }
     nextId: 1,
 
     // 로그
@@ -171,6 +171,7 @@ export const useAppStore = defineStore('app', {
 
     // ── 처리 ─────────────────────────────────────────
     async startProcessing() {
+      if (this.isProcessing) return;
       if (this.keywords.length === 0 || this.files.length === 0) return;
 
       this.isProcessing = true;
@@ -179,24 +180,72 @@ export const useAppStore = defineStore('app', {
       this.addLog('🚀 처리 시작');
       this.activeTab = 2; // 로그 탭으로 이동
 
-      this._worker = new Worker(
-        new URL('../workers/processor.worker.js', import.meta.url),
-        { type: 'module' }
-      );
+      // 대상 목록·단어 목록을 시작 시점에 고정한다. 처리 중 드래그앤드롭으로
+      // 목록이 바뀌어도 이번 실행에 끌려 들어가거나, 파일마다 다른 단어
+      // 목록이 적용되는 일이 없다.
+      const queue = [...this.files];
+      const keywords = [...this.keywords];
+      const detectConsecutiveSpaces = this.detectConsecutiveSpaces;
+      let cursor = 0;
 
-      this._worker.onerror = (e) => {
+      let worker;
+      try {
+        worker = new Worker(
+          new URL('../workers/processor.worker.js', import.meta.url),
+          { type: 'module' }
+        );
+      } catch (e) {
+        this.addLog(`❌ 처리기를 시작하지 못했습니다: ${e}`);
+        this._cleanup();
+        return;
+      }
+      this._worker = worker;
+
+      // 이 실행이 아직 유효한가 — 중지했거나 워커가 죽었으면 더 보내지 않는다.
+      const alive = () => !this.stopRequested && this._worker === worker;
+
+      // 워커가 한 건을 끝낼 때마다 다음 파일을 보낸다(pull 방식).
+      // 전부 밀어 넣으면 파일 수만큼의 바이트가 동시에 메모리에 올라가고,
+      // 큐에 들어간 뒤에는 중지도 듣지 않는다.
+      const sendNext = async () => {
+        while (cursor < queue.length) {
+          if (!alive()) return;
+          const file = queue[cursor++];
+          try {
+            const bytes = await invoke('read_file_bytes', { path: file.path });
+            if (!alive()) return;
+            const ext = file.name.split('.').pop().toLowerCase();
+            const outputPath = file.path.replace(/[^/\\]+$/, `output_${file.name}`);
+            const data = new Uint8Array(bytes);
+            worker.postMessage(
+              { type: 'process', id: file.id, name: file.name, ext, outputPath, data, keywords, detectConsecutiveSpaces },
+              [data.buffer]
+            );
+            return; // 다음 파일은 워커의 ready 신호를 받고 보낸다
+          } catch (e) {
+            this.updateFileStatus(file.id, '실패');
+            this.addLog(`❌ 파일 읽기 실패 [${file.name}]: ${e}`);
+          }
+        }
+        if (alive()) worker.postMessage({ type: 'end' });
+      };
+
+      worker.onerror = (e) => {
         this.addLog(`❌ Worker 오류: ${e.message ?? e}`);
         this._cleanup();
       };
 
-      this._worker.onmessageerror = (e) => {
+      worker.onmessageerror = (e) => {
         this.addLog(`❌ Worker 메시지 역직렬화 오류: ${e}`);
         this._cleanup();
       };
 
-      this._worker.onmessage = async (e) => {
+      worker.onmessage = async (e) => {
         const msg = e.data;
         switch (msg.type) {
+          case 'ready':
+            await sendNext();
+            break;
           case 'progress':
             this.updateFileStatus(msg.id, msg.status);
             break;
@@ -207,7 +256,7 @@ export const useAppStore = defineStore('app', {
             try {
               await invoke('write_file_bytes', { path: msg.outputPath, data: Array.from(msg.data) });
               this.updateFileStatus(msg.id, '성공');
-              this.addLog(`✅ 완료 → ${msg.outputPath}`);
+              this.addLog(`✅ 저장 완료 → ${msg.outputPath}`);
             } catch (e) {
               this.updateFileStatus(msg.id, '실패');
               this.addLog(`❌ 저장 실패 [${msg.name}]: ${e}`);
@@ -224,33 +273,19 @@ export const useAppStore = defineStore('app', {
         }
       };
 
-      // 각 파일 바이트 읽기 → 워커로 전송
-      for (const file of this.files) {
-        if (this.stopRequested) {
-          this.addLog('⛔ 사용자에 의해 중지되었습니다.');
-          break;
-        }
-        try {
-          const bytes = await invoke('read_file_bytes', { path: file.path });
-          const ext = file.name.split('.').pop().toLowerCase();
-          const outputPath = file.path.replace(/[^/\\]+$/, `output_${file.name}`);
-          const data = new Uint8Array(bytes);
-          this._worker.postMessage(
-            { type: 'process', id: file.id, name: file.name, ext, outputPath, data, keywords: [...this.keywords], detectConsecutiveSpaces: this.detectConsecutiveSpaces },
-            [data.buffer]
-          );
-        } catch (e) {
-          this.updateFileStatus(file.id, '실패');
-          this.addLog(`❌ 파일 읽기 실패 [${file.name}]: ${e}`);
-        }
-      }
-
-      this._worker.postMessage({ type: 'flush' });
+      await sendNext();
     },
 
     stopProcessing() {
+      if (!this.isProcessing) return;
       this.stopRequested = true;
-      this.addLog('⛔ 중지 요청...');
+      this.addLog('⛔ 사용자 요청으로 중단했습니다.');
+      this.files.forEach(f => {
+        if (f.status === '대기' || f.status === '처리중') f.status = '중단';
+      });
+      // 플래그만 세우면 이미 워커로 넘어간 작업은 끝까지 돈다 —
+      // terminate로 진행 중인 것까지 즉시 멈춘다.
+      this._cleanup();
     },
 
     _cleanup() {

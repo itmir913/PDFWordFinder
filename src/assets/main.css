@@ -21,6 +21,7 @@
   --color-status-processing: #FFF3CD;
   --color-status-done: #D4EDDA;
   --color-status-failed: #F8D7DA;
+  --color-status-stopped: #E9ECEF;
 }
 
 *, code, pre, kbd, samp {

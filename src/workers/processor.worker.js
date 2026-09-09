@@ -12,28 +12,33 @@ import pdfjsWorkerSrc from 'pdfjs-dist/build/pdf.worker.mjs?url';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerSrc;
 
-const queue = [];
-let flushed = false;
+// 한 건을 끝낼 때마다 'ready'를 보내고, 스토어가 그때 다음 파일을 읽어 보낸다.
+//
+// 예전에는 스토어가 모든 파일 바이트를 한꺼번에 큐에 밀어 넣었다. 학년 전체
+// 생기부처럼 파일이 많으면 전부가 동시에 메모리에 올라갔고, 큐에 들어간
+// 뒤에는 중지를 눌러도 끝까지 처리됐다.
+let chain = Promise.resolve();
 
-self.onmessage = async (e) => {
+self.onmessage = (e) => {
   const msg = e.data;
-  if (msg.type === 'process') {
-    queue.push(msg);
-    if (flushed) await processNext();
-  } else if (msg.type === 'flush') {
-    flushed = true;
-    await drainQueue();
-  }
+  chain = chain
+    .then(async () => {
+      if (msg.type === 'process') {
+        await processTask(msg);
+        self.postMessage({ type: 'ready' });
+      } else if (msg.type === 'end') {
+        self.postMessage({ type: 'done' });
+      }
+    })
+    .catch((err) => {
+      // processTask가 스스로 잡지 못한 예외까지 여기서 알린다 —
+      // 조용히 멈추면 스토어가 다음 파일을 영영 보내지 않는다.
+      self.postMessage({ type: 'error', id: msg.id, name: msg.name, message: String(err) });
+      self.postMessage({ type: 'ready' });
+    });
 };
 
-async function drainQueue() {
-  while (queue.length > 0) await processNext();
-  self.postMessage({ type: 'done' });
-}
-
-async function processNext() {
-  const task = queue.shift();
-  if (!task) return;
+async function processTask(task) {
   try {
     if (task.ext === 'pdf') await processPdf(task);
     else if (task.ext === 'xlsx') await processExcel(task);
@@ -59,18 +64,31 @@ async function processPdf({ id, name, outputPath, data, keywords, detectConsecut
   const { pattern, kwMap } = buildCompactPattern(keywords);
 
   // Step 1: pdfjs-dist로 텍스트 위치 추출
-  const pdf = await pdfjsLib.getDocument({ data: data.slice() }).promise;
+  //
+  // pdfjs는 getDocument 호출마다 워커 스레드를 새로 만들고, 그 스레드는
+  // loadingTask.destroy()로만 끝난다. 정리하지 않으면 처리한 파일 수만큼
+  // 스레드와 파싱된 문서가 그대로 살아 있는다.
+  const loadingTask = pdfjsLib.getDocument({ data: data.slice() });
   const pageHighlights = [];
   let totalFound = 0;
 
-  for (let p = 1; p <= pdf.numPages; p++) {
-    const page = await pdf.getPage(p);
-    const content = await page.getTextContent();
-    const { rects, matchedKeywords } = findKeywordRectsAndKeywords(content.items, pattern, kwMap);
-    if (rects.length > 0) {
-      pageHighlights.push({ pageIndex: p - 1, rects, keywords: matchedKeywords });
-      totalFound += rects.length;
+  try {
+    const pdf = await loadingTask.promise;
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      try {
+        const content = await page.getTextContent();
+        const { rects, matchedKeywords } = findKeywordRectsAndKeywords(content.items, pattern, kwMap);
+        if (rects.length > 0) {
+          pageHighlights.push({ pageIndex: p - 1, rects, keywords: matchedKeywords });
+          totalFound += rects.length;
+        }
+      } finally {
+        page.cleanup();
+      }
     }
+  } finally {
+    await loadingTask.destroy();
   }
 
   // Step 2: pdf-lib으로 하이라이트 + 북마크 추가
