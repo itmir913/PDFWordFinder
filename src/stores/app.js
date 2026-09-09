@@ -94,15 +94,24 @@ export const useAppStore = defineStore('app', {
     // 같은 인코딩 폴백을 탄다.
     _parseCsvBytes(bytes, path, source) {
       const { text, encoding } = decodeCsvBytes(bytes);
+      // 판별 실패를 성공으로 넘기면 깨진 단어 목록으로 검사가 돌아
+      // 오류 없이 "탐지 0건"이 된다 — CP949 사고와 같은 실패 모드다.
+      if (encoding === 'unknown') {
+        this.addLog(`❌ CSV 인코딩을 판별하지 못했습니다. UTF-8 또는 CP949(ANSI)로 저장한 뒤 다시 시도하세요. | ${path}`);
+        return;
+      }
       if (encoding !== 'utf-8') {
-        const how = encoding === 'unknown' ? '판별하지 못해 UTF-8로' : `${encoding}(으)로`;
-        this.addLog(`ℹ️ CSV 인코딩을 ${how} 읽었습니다.`);
+        this.addLog(`ℹ️ CSV 인코딩을 ${encoding}(으)로 읽었습니다.`);
       }
       this._parseCsvText(text, path, source);
     },
 
     _parseCsvText(text, path, source) {
       const kws = parseKeywords(text);
+      if (kws.length === 0) {
+        this.addLog(`❌ 검색 단어를 하나도 읽지 못했습니다. 첫 줄은 제목 행으로 건너뛰므로 두 번째 줄부터 단어가 있어야 합니다. | ${path}`);
+        return;
+      }
       this.keywords = kws;
       this.csvPath = path;
       this.csvSource = source ?? 'user';

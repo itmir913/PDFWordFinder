@@ -43,8 +43,8 @@ describe('decodeCsvBytes', () => {
   });
 
   it('어느 인코딩으로도 못 읽으면 unknown으로 알린다', () => {
-    // UTF-8로도 EUC-KR로도 유효하지 않은 바이트
-    const { encoding } = decodeCsvBytes(cp949([0xff, 0xfe, 0x00, 0x80]));
+    // 0xFF는 UTF-8 선두 바이트로도, EUC-KR 선두 바이트(0x81~0xFE)로도 무효다.
+    const { encoding } = decodeCsvBytes(cp949([0xff, 0xff]));
     expect(encoding).toBe('unknown');
   });
 
@@ -101,5 +101,73 @@ describe('실제 default.csv', () => {
     expect(keywords).toContain('토익');
     expect(keywords.every(k => k.length > 0)).toBe(true);
     expect(keywords).not.toContain('keyword'); // 헤더가 단어로 새면 안 된다
+  });
+});
+
+// 회귀: Excel "유니코드 텍스트"로 저장한 CSV는 UTF-16이다. UTF-16LE의 ASCII
+// 구간은 'T\0O\0E\0…'이라 UTF-8 디코더가 fatal 없이 "성공"해 버리고, NUL이
+// 박힌 문자열이 그대로 단어 목록이 됐다 — UI는 "✅ 로드 완료", 결과는 탐지 0건.
+describe('UTF-16 CSV (Excel "유니코드 텍스트" 저장)', () => {
+  const utf16 = (str, { bom = true, little = true } = {}) => {
+    const bytes = [];
+    if (bom) bytes.push(...(little ? [0xff, 0xfe] : [0xfe, 0xff]));
+    for (let i = 0; i < str.length; i++) {
+      const c = str.charCodeAt(i);
+      bytes.push(...(little ? [c & 0xff, c >> 8] : [c >> 8, c & 0xff]));
+    }
+    return new Uint8Array(bytes);
+  };
+
+  it('BOM 있는 UTF-16LE를 읽는다', () => {
+    expect(decodeCsvBytes(utf16('keyword\r\n토익'))).toEqual({
+      text: 'keyword\r\n토익',
+      encoding: 'utf-16le',
+    });
+  });
+
+  it('BOM 있는 UTF-16BE를 읽는다', () => {
+    const { text, encoding } = decodeCsvBytes(utf16('keyword\r\n토익', { little: false }));
+    expect(encoding).toBe('utf-16be');
+    expect(text).toBe('keyword\r\n토익');
+  });
+
+  it('BOM 없는 UTF-16LE도 UTF-8로 오인하지 않는다', () => {
+    const { encoding } = decodeCsvBytes(utf16('keyword\r\nTOEIC\r\nTOEFL', { bom: false }));
+    expect(encoding).toBe('utf-16le');
+  });
+
+  it('UTF-16 단어 목록에 NUL이 섞여 들어가지 않는다', () => {
+    const { text } = decodeCsvBytes(utf16('keyword\r\nTOEIC\r\nTOEFL', { bom: false }));
+    expect(parseKeywords(text)).toEqual(['TOEIC', 'TOEFL']);
+  });
+
+  it('CP949를 UTF-16으로 오판하지 않는다', () => {
+    // 'keyword\n토익' — NUL이 없으므로 UTF-16 추정에 걸리면 안 된다.
+    const bytes = new Uint8Array([
+      0x6b, 0x65, 0x79, 0x77, 0x6f, 0x72, 0x64, 0x0a,
+      0xc5, 0xe4, 0xc0, 0xcd,
+    ]);
+    expect(decodeCsvBytes(bytes).encoding).toBe('euc-kr');
+  });
+});
+
+// 회귀: line.split(',')[0]은 Excel이 저장한 인용 필드를 조각냈다.
+// 남은 따옴표는 escapeRegex로 리터럴 처리되어 그 단어가 영영 매칭되지 않았다.
+describe('parseKeywords — RFC4180 인용 필드', () => {
+  it('따옴표 안의 쉼표에 칸이 쪼개지지 않는다', () => {
+    expect(parseKeywords('keyword,비고\r\n"토익, 토플",영어\r\n')).toEqual(['토익, 토플']);
+  });
+
+  it('이스케이프된 따옴표("")를 복원한다', () => {
+    expect(parseKeywords('keyword\r\n"가""나"\r\n')).toEqual(['가"나']);
+  });
+
+  it('따옴표 안의 줄바꿈에 레코드가 쪼개지지 않는다', () => {
+    // 두 번째 칸(비고)에 줄바꿈이 든 경우 — 단어는 2개여야 한다.
+    expect(parseKeywords('keyword,비고\r\n토익,"영어\r\n시험"\r\n토플,x\r\n')).toEqual(['토익', '토플']);
+  });
+
+  it('따옴표가 남은 단어를 만들지 않는다', () => {
+    expect(parseKeywords('keyword\r\n"토익"\r\n')).toEqual(['토익']);
   });
 });
