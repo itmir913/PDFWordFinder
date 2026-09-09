@@ -43,8 +43,34 @@ jobs:
           fi
           echo "릴리즈 대상 버전: $VERSION"
 
+  # publish는 workflow_dispatch라 임의 브랜치에서 돌 수 있다. ci.yml의 rust
+  # 잡은 main push와 PR에서만 도므로, PR을 거치지 않은 브랜치에서 릴리즈하면
+  # Rust 코드가 한 번도 린트되지 않은 채 배포된다.
+  rust-gate:
+    name: Gate (Rust)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: cargo fmt
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
   build:
-    needs: gate
+    needs: [gate, rust-gate]
     permissions:
       contents: read
     strategy:
@@ -144,7 +170,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ needs.gate.outputs.version }}"
+          # --target이 없으면 태그가 기본 브랜치의 최신 커밋에 붙는다.
+          # 브랜치에서 dispatch하면 그 브랜치로 만든 바이너리가 main 커밋
+          # 태그로 배포되어, 태그를 checkout해도 재현이 안 된다.
           gh release create "$VERSION" \
+            --target "${{ github.sha }}" \
             --title "$VERSION" \
             --notes "See the assets to download this version and install." \
             --draft \

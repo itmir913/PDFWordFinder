@@ -12,8 +12,14 @@ concurrency:
 
 jobs:
   frontend:
-    name: Frontend
-    runs-on: ubuntu-latest
+    name: Frontend (${{ matrix.os }})
+    # 한글 정렬(localeCompare(a, b, 'ko'))은 플랫폼 ICU에 따라 결과가 다르다.
+    # 배포 대상은 Windows/macOS인데 검증은 ubuntu에서만 하고 있었다.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
 
@@ -53,3 +59,6 @@ jobs:
       # 경고를 에러로 올린다. 안 그러면 아무도 안 읽는 로그가 쌓일 뿐이다.
       - name: cargo clippy
         run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --manifest-path src-tauri/Cargo.toml

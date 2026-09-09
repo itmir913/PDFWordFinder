@@ -73,13 +73,22 @@ npm run test:watch
 
 | 검사 | 내용 |
 | --- | --- |
-| `scripts/check-architecture.mjs` | `CLAUDE.md`의 아키텍처 규칙(스토어 밖 `invoke()`, 인라인 `style=`, 빈 `catch`, 정규식 lookbehind 등)을 기계로 강제 |
-| `tests/csv.spec.js` | 단어 CSV 인코딩 판별(UTF-8 / CP949)과 파싱 |
-| `tests/keywords.spec.js` | 단어 매칭 정규식, 연속 공백 검사 |
-| `tests/pdf-highlight.spec.js` | 하이라이트 좌표 계산, 어노테이션·북마크 구조 |
+| `scripts/check-architecture.mjs` | `CLAUDE.md`의 아키텍처 규칙(컴포넌트의 Tauri IPC, 인라인 `style=`/`:style=`, `<style>` 하드코딩, 빈 `catch`, 정규식 lookbehind 등)을 기계로 강제 |
+| `tests/check-architecture.spec.js` | **검사기 자체의 검사** — 별칭 import·`:style` 바인딩·여러 줄 빈 catch 같은 우회를 실제로 잡는지 |
+| `tests/csv.spec.js` | 단어 CSV 인코딩 판별(UTF-8 / CP949 / UTF-16)과 RFC4180 파싱 |
+| `tests/keywords.spec.js` | 단어 매칭 정규식, NFC 정규화, 연속 공백 검사 |
+| `tests/keyword-lists.spec.js` | `default.csv`와 내장 단어 목록이 어긋나지 않는지 |
+| `tests/excel.spec.js` | 시트 결과 컬럼 재생성, 날짜 셀 보존 |
+| `tests/paths.spec.js` | 파일명·확장자·`output_` 경로 계산 |
+| `tests/pdf-highlight.spec.js` | 하이라이트 좌표 계산, 아이템 경계 판정, 어노테이션·북마크 구조 |
 | `tests/pdf-pipeline.spec.js` | PDF 생성 → 하이라이트 → **실제 렌더링해 노란 픽셀 확인** |
 
-Rust는 `ci.yml`의 별도 잡에서 `cargo fmt --check` + `cargo clippy -- -D warnings`로 검사합니다.
+Rust는 `ci.yml`의 별도 잡에서 `cargo fmt --check` + `cargo clippy -- -D warnings` + `cargo test`로 검사합니다.
+`publish.yml`에도 같은 Rust 관문이 있습니다 — publish는 임의 브랜치에서 dispatch할 수 있어서,
+PR을 거치지 않은 코드가 린트 없이 배포되는 경로를 막습니다.
+
+에러를 정말 삼켜야 하는 자리에는 `catch` 본문에 `의도적 무시: <이유>`를 남깁니다.
+표식이 없는 빈 `catch`는 관문에서 실패합니다.
 
 > **하이라이트 관련 수정은 반드시 회귀 테스트를 함께 추가하세요.**
 > 어노테이션이 정상적으로 들어가 있는데 화면에만 안 보이는 버그가 실제로 있었습니다.
