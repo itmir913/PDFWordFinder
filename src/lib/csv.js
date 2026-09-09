@@ -62,7 +62,8 @@ export function decodeCsvBytes(bytes) {
       if (isUsableText(text)) return { text, encoding };
       // 디코딩은 됐지만 NUL/대체문자가 남았다 — 다음 후보로 넘어간다.
     } catch {
-      // 이 인코딩으로는 못 읽는다 — 다음 후보로 넘어간다.
+      // 의도적 무시: 이 인코딩으로는 못 읽는다는 뜻이다. 후보를 다 소진하면
+      // encoding: unknown으로 알리므로 여기서 삼켜도 조용히 넘어가지 않는다.
     }
   }
 
