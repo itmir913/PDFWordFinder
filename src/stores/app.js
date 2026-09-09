@@ -201,6 +201,10 @@ export const useAppStore = defineStore('app', {
       }
       this._worker = worker;
 
+      // 진행 중인 디스크 쓰기. 메시지 이벤트는 핸들러의 Promise를 기다려 주지
+      // 않으므로, 이것을 세지 않으면 저장이 끝나기 전에 done이 처리된다.
+      const pendingWrites = new Set();
+
       // 이 실행이 아직 유효한가 — 중지했거나 워커가 죽었으면 더 보내지 않는다.
       const alive = () => !this.stopRequested && this._worker === worker;
 
@@ -252,21 +256,33 @@ export const useAppStore = defineStore('app', {
           case 'log':
             this.addLog(msg.message);
             break;
-          case 'result':
+          case 'result': {
+            const write = (async () => {
+              try {
+                await invoke('write_file_bytes', { path: msg.outputPath, data: Array.from(msg.data) });
+                this.updateFileStatus(msg.id, '성공');
+                this.addLog(`✅ 저장 완료 → ${msg.outputPath}`);
+              } catch (e) {
+                this.updateFileStatus(msg.id, '실패');
+                this.addLog(`❌ 저장 실패 [${msg.name}]: ${e}`);
+              }
+            })();
+            pendingWrites.add(write);
             try {
-              await invoke('write_file_bytes', { path: msg.outputPath, data: Array.from(msg.data) });
-              this.updateFileStatus(msg.id, '성공');
-              this.addLog(`✅ 저장 완료 → ${msg.outputPath}`);
-            } catch (e) {
-              this.updateFileStatus(msg.id, '실패');
-              this.addLog(`❌ 저장 실패 [${msg.name}]: ${e}`);
+              await write;
+            } finally {
+              pendingWrites.delete(write);
             }
             break;
+          }
           case 'error':
             this.updateFileStatus(msg.id, '실패');
             this.addLog(`❌ 오류 [${msg.name}]: ${msg.message}`);
             break;
           case 'done':
+            // 남은 저장이 끝나기 전에 완료를 알리면, 사용자는 "모든 처리 완료"를
+            // 보고 창을 닫은 뒤에야 결과 파일이 없다는 것을 알게 된다.
+            await Promise.allSettled([...pendingWrites]);
             this.addLog('✅ 모든 처리 완료.');
             this._cleanup();
             break;
