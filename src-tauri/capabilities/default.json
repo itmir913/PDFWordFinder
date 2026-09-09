@@ -3,12 +3,11 @@
   "identifier": "default",
   "description": "Capability for the main window",
   "windows": ["main"],
+  "comment": "쓰는 것만 준다. opener:default에는 allow-reveal-item-in-dir가, dialog:default에는 allow-save/allow-message가 딸려 오는데 이 앱은 openUrl()과 open()만 쓴다.",
   "permissions": [
     "core:default",
-    "opener:default",
     "opener:allow-open-url",
-    "dialog:default",
-    "dialog:allow-open",
-    "dialog:allow-save"
+    "opener:allow-default-urls",
+    "dialog:allow-open"
   ]
 }

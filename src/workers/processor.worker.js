@@ -68,7 +68,9 @@ async function processPdf({ id, name, outputPath, data, keywords, detectConsecut
   // pdfjs는 getDocument 호출마다 워커 스레드를 새로 만들고, 그 스레드는
   // loadingTask.destroy()로만 끝난다. 정리하지 않으면 처리한 파일 수만큼
   // 스레드와 파싱된 문서가 그대로 살아 있는다.
-  const loadingTask = pdfjsLib.getDocument({ data: data.slice() });
+  // isEvalSupported: false — 텍스트 추출만 하므로 pdfjs의 eval 경로가
+  // 필요 없다. CSP에서 'unsafe-eval'을 뺄 수 있는 전제다.
+  const loadingTask = pdfjsLib.getDocument({ data: data.slice(), isEvalSupported: false });
   const pageHighlights = [];
   let totalFound = 0;
 
