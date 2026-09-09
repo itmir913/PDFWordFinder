@@ -5,7 +5,7 @@ import {
   addHighlightAnnotation,
   addOutlines,
 } from '../src/workers/lib/pdf-highlight.js';
-import { buildPattern } from '../src/workers/lib/keywords.js';
+import { buildCompactPattern } from '../src/workers/lib/keywords.js';
 
 // pdfjs의 getTextContent() 아이템을 흉내낸다.
 // transform = [a b c d e f] — (a,b)는 글자 진행 방향, (c,d)는 글자 위쪽 방향.
@@ -25,7 +25,7 @@ const rotated90 = (str, { x = 100, y = 0, size = 10, width = null } = {}) => ({
 });
 
 const quadsFor = (items, keywords) => {
-  const { pattern, kwMap } = buildPattern(keywords);
+  const { pattern, kwMap } = buildCompactPattern(keywords);
   return findKeywordRectsAndKeywords(items, pattern, kwMap);
 };
 
@@ -97,8 +97,10 @@ describe('findKeywordRectsAndKeywords', () => {
 
   it('한 단어가 두 조각에 걸치면 조각마다 하이라이트를 만든다', () => {
     // pdfjs는 같은 줄이라도 글꼴/커닝 경계에서 텍스트를 나눈다.
+    // 예전에는 조각 사이에 무조건 공백이 끼어서 키워드를 '토 익'으로 적어야
+    // 통과했다 — 실제 단어 목록에는 '토익'이 들어 있으므로 못 찾는 상태였다.
     const items = [horizontal('토', { x: 0 }), horizontal('익', { x: 5 })];
-    const { rects } = quadsFor(items, ['토 익']);
+    const { rects } = quadsFor(items, ['토익']);
     expect(rects).toHaveLength(2);
   });
 
@@ -269,5 +271,69 @@ describe('addOutlines', () => {
     const first = doc.catalog.lookup(PDFName.of('Outlines')).lookup(PDFName.of('First'));
     const dest = first.lookup(PDFName.of('Dest'), PDFArray);
     expect(dest.get(0)).toBe(doc.getPage(2).ref);
+  });
+});
+
+// 회귀: 예전에는 아이템 사이에 무조건 공백 1칸을 넣었다. 그래서 한 단어가
+// 두 아이템으로 쪼개지면('토'+'익') '토 익'이 되어 영영 못 찾았고, 반대로
+// 서로 무관한 두 칸의 끝과 시작이 이어 붙어 공백 포함 키워드를 오탐했다.
+describe('아이템 경계 처리', () => {
+  const eol = item => ({ ...item, hasEOL: true });
+
+  it('같은 줄에서 두 조각으로 쪼개진 단어를 찾는다', () => {
+    const items = [horizontal('토', { x: 0 }), horizontal('익', { x: 5 })];
+    const { rects, matchedKeywords } = quadsFor(items, ['토익']);
+    expect([...matchedKeywords]).toEqual(['토익']);
+    expect(rects).toHaveLength(2); // 조각마다 하나씩
+  });
+
+  it('줄바꿈으로 쪼개진 단어를 찾는다', () => {
+    const items = [
+      eol(horizontal('성적이 좋아 토', { x: 0, y: 100 })),
+      horizontal('익 응시함', { x: 0, y: 80 }),
+    ];
+    expect([...quadsFor(items, ['토익']).matchedKeywords]).toEqual(['토익']);
+  });
+
+  it('공백 포함 키워드는 같은 줄에서 정상 매칭된다', () => {
+    const { rects } = quadsFor([horizontal('교내 대회 참가함')], ['대회 참가']);
+    expect(rects).toHaveLength(1);
+  });
+
+  it('공백 포함 키워드를 줄 경계 너머로 오탐하지 않는다', () => {
+    // '…교내 대회' / '참가하여…' 가 이어 붙어 '대회 참가'가 되면 안 된다.
+    const items = [
+      eol(horizontal('교내 대회', { x: 0, y: 100 })),
+      horizontal('참가하여', { x: 0, y: 80 }),
+    ];
+    expect(quadsFor(items, ['대회 참가']).rects).toEqual([]);
+  });
+
+  it('공백 포함 키워드를 옆 칸 너머로 오탐하지 않는다', () => {
+    // 같은 줄이지만 표의 다른 칸 — 진행 방향으로 멀리 떨어져 있다.
+    const items = [
+      horizontal('교내 대회', { x: 0, y: 100 }),
+      horizontal('참가하여', { x: 300, y: 100 }),
+    ];
+    expect(quadsFor(items, ['대회 참가']).rects).toEqual([]);
+  });
+
+  it('자간 때문에 아이템 안에 낀 공백을 무시하고 찾는다', () => {
+    // pdfjs가 Tc를 보고 'ㅌ ㅗ ㅇ ㅣ ㄱ'처럼 글자마다 공백을 끼워 넣은 상태.
+    const { rects } = quadsFor([horizontal('가 토 익 나')], ['토익']);
+    expect(rects).toHaveLength(1);
+  });
+
+  it('조합형(NFD) 본문에서도 찾는다', () => {
+    const { matchedKeywords } = quadsFor([horizontal('토익 응시'.normalize('NFD'))], ['토익']);
+    expect([...matchedKeywords]).toEqual(['토익']);
+  });
+
+  it('회전 텍스트에서도 줄 경계 오탐을 막는다', () => {
+    const items = [
+      eol(rotated90('교내 대회', { x: 100, y: 0 })),
+      rotated90('참가하여', { x: 80, y: 0 }),
+    ];
+    expect(quadsFor(items, ['대회 참가']).rects).toEqual([]);
   });
 });

@@ -6,7 +6,7 @@ import * as XLSX from 'xlsx';
 import ExcelJS from 'exceljs';
 import { PDFDocument } from 'pdf-lib';
 import { findKeywordRectsAndKeywords, addOutlines, addHighlightAnnotation } from './lib/pdf-highlight.js';
-import { buildPattern, findKeywordsInRow } from './lib/keywords.js';
+import { buildPattern, buildCompactPattern, findKeywordsInRow } from './lib/keywords.js';
 import pdfjsWorkerSrc from 'pdfjs-dist/build/pdf.worker.mjs?url';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerSrc;
@@ -53,7 +53,9 @@ async function processPdf({ id, name, outputPath, data, keywords, detectConsecut
   self.postMessage({ type: 'progress', id, status: '처리중' });
   self.postMessage({ type: 'log', message: `▶ PDF 처리 시작: ${name}` });
 
-  const { pattern, kwMap } = buildPattern(keywords);
+  // PDF는 공백을 지운 형태로 맞춘다 — pdfjs가 자간·커닝 경계에서 공백을
+  // 끼워 넣거나 한 단어를 여러 아이템으로 쪼개기 때문이다.
+  const { pattern, kwMap } = buildCompactPattern(keywords);
 
   // Step 1: pdfjs-dist로 텍스트 위치 추출
   const pdf = await pdfjsLib.getDocument({ data: data.slice() }).promise;

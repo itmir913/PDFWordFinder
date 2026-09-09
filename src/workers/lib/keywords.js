@@ -54,6 +54,26 @@ export function buildPattern(keywords) {
   return { pattern, kwMap };
 }
 
+// 공백을 모두 지운 매칭 형태. 정규식 \s는 NBSP·전각 공백까지 포함한다.
+export function stripSpaces(text) {
+  return toMatchForm(text).replace(/\s+/g, '');
+}
+
+// PDF 전용 패턴. pdfjs는 자간이 벌어지면 item.str 안에 공백을 스스로 끼워
+// 넣고("토익" → "토 익"), 글꼴·커닝 경계에서 한 단어를 여러 아이템으로 쪼갠다.
+// 원문 그대로 매칭하면 이런 PDF에서 단어를 하나도 못 찾는다 — 양쪽에서
+// 공백을 지우고 맞춘다.
+export function buildCompactPattern(keywords) {
+  const { pattern, kwMap } = buildPattern(keywords.map(stripSpaces));
+  // kwMap의 값이 공백 지운 형태이므로, 원본 표기로 되돌릴 표를 따로 만든다.
+  const originals = new Map();
+  for (const kw of keywords) {
+    const key = stripSpaces(kw).toLowerCase();
+    if (key && !originals.has(key)) originals.set(key, kw);
+  }
+  return { pattern, kwMap: originals.size > 0 ? originals : kwMap };
+}
+
 // 셀 한 줄에서 발견된 원본 키워드를 가나다순으로 반환 (Excel 처리용)
 export function findKeywordsInRow(cells, pattern, kwMap, detectConsecutiveSpaces = false) {
   const foundSet = new Set();

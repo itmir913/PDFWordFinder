@@ -1,7 +1,35 @@
 // PDF 하이라이트/북마크 생성 로직 (순수 함수 — Worker 밖에서도 테스트 가능)
 import { PDFName, PDFNumber, PDFHexString } from 'pdf-lib';
+import { toMatchForm } from './keywords.js';
+
+// 두 아이템 사이가 "이어지는 글"이 아니라 다른 덩어리(줄바꿈, 옆 칸)인가.
+//
+// 예전에는 아이템 사이에 무조건 공백 1칸을 넣었다. 그래서 (1) 한 단어가 두
+// 아이템으로 쪼개지면 '토 익'이 되어 못 찾고, (2) 표의 옆 칸이나 다음 줄의
+// 끝과 시작이 이어 붙어 '대회 참가' 같은 공백 포함 키워드를 오탐했다.
+function breaksBlock(prev, next) {
+  if (prev.hasEOL) return true;
+
+  const size = prev.fontSize || next.fontSize;
+  if (!(size > 0)) return true;
+
+  // 글자 진행 방향이 다르면(회전 텍스트 경계) 다른 덩어리로 본다.
+  if (prev.ux * next.ux + prev.uy * next.uy < 0.99) return true;
+
+  // prev의 끝점 → next의 시작점 변위를 진행 방향/위 방향으로 분해한다.
+  const dx = next.x - (prev.x + prev.ux * prev.width);
+  const dy = next.y - (prev.y + prev.uy * prev.width);
+  const along = dx * prev.ux + dy * prev.uy;
+  const perp = dx * prev.vx + dy * prev.vy;
+
+  if (Math.abs(perp) > size * 0.5) return true;   // 줄이 다르다
+  return Math.abs(along) > size * 1.5;            // 같은 줄이지만 멀리 떨어졌다
+}
 
 // 텍스트 아이템 목록에서 키워드 위치와 원본 키워드 Set을 반환
+//
+// pattern/kwMap은 buildCompactPattern()이 만든 것이어야 한다 — 본문도
+// 키워드도 공백을 지운 형태로 맞춘다.
 export function findKeywordRectsAndKeywords(items, pattern, kwMap) {
   const segments = items
     .filter(item => item.str)
@@ -13,6 +41,7 @@ export function findKeywordRectsAndKeywords(items, pattern, kwMap) {
       const fontSize = Math.hypot(c, d) || Math.abs(item.height) || 0;
       return {
         text: item.str,
+        hasEOL: item.hasEOL === true,
         x: e,
         y: f,
         width: item.width,
@@ -28,35 +57,47 @@ export function findKeywordRectsAndKeywords(items, pattern, kwMap) {
 
   if (segments.length === 0) return { rects: [], matchedKeywords: new Set() };
 
-  // 전체 텍스트 문자열 + 위치 맵 구성
-  let fullText = '';
+  // 공백을 지운 본문 + 위치 맵 구성.
+  // blockIdx는 "이어지는 글" 단위다 — 서로 다른 blockIdx를 이어 붙여 만든
+  // 매칭은 공백 포함 키워드일 때 버린다(옆 칸끼리 이어 붙는 오탐 방지).
+  let compact = '';
   const posMap = [];
+  let blockIdx = 0;
 
   for (let i = 0; i < segments.length; i++) {
+    if (i > 0 && breaksBlock(segments[i - 1], segments[i])) blockIdx++;
+
     const seg = segments[i];
-    for (let j = 0; j < seg.text.length; j++) {
-      posMap.push({ segIdx: i, charIdx: j });
-      fullText += seg.text[j];
-    }
-    if (i < segments.length - 1) {
-      posMap.push({ segIdx: i, charIdx: -1, isGap: true });
-      fullText += ' ';
+    // NFC 정규화로 글자 수가 바뀔 수 있다(조합형 → 완성형). 기하 계산은
+    // 원본 글자 인덱스 기준이므로 비례 환산해 되돌린다.
+    const norm = toMatchForm(seg.text);
+    const scale = seg.text.length / (norm.length || 1);
+
+    for (let j = 0; j < norm.length; j++) {
+      if (/\s/.test(norm[j])) continue; // pdfjs가 자간 때문에 넣은 공백 포함
+      const charIdx = Math.min(seg.text.length - 1, Math.floor(j * scale));
+      posMap.push({ segIdx: i, charIdx, blockIdx });
+      compact += norm[j];
     }
   }
 
   const rects = [];
   const matchedKeywords = new Set();
 
-  for (const match of fullText.matchAll(pattern)) {
+  for (const match of compact.matchAll(pattern)) {
     const originalKw = kwMap.get(match[0].toLowerCase()) ?? match[0];
 
     const start = match.index;
     const end = start + match[0].length;
 
+    // 공백이 든 키워드가 덩어리 경계를 넘어 매칭됐다면, 서로 무관한 두 칸을
+    // 이어 붙여 만들어진 것이다 — 하이라이트하지 않는다.
+    if (/\s/.test(originalKw) && posMap[start].blockIdx !== posMap[end - 1].blockIdx) continue;
+
     const segGroups = new Map();
     for (let ci = start; ci < end; ci++) {
       const pos = posMap[ci];
-      if (!pos || pos.isGap) continue;
+      if (!pos) continue;
       const { segIdx, charIdx } = pos;
       if (!segGroups.has(segIdx)) {
         segGroups.set(segIdx, { minChar: charIdx, maxChar: charIdx });
