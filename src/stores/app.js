@@ -1,6 +1,8 @@
 import { defineStore } from 'pinia';
 import { invoke } from '@tauri-apps/api/core';
 import { decodeCsvBytes, parseKeywords } from '../lib/csv.js';
+import { fileNameOf, extensionOf, outputPathFor } from '../lib/paths.js';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getVersion } from '@tauri-apps/api/app';
 import { open } from '@tauri-apps/plugin-dialog';
 import { openUrl } from '@tauri-apps/plugin-opener';
@@ -55,6 +57,41 @@ export const useAppStore = defineStore('app', {
         this.addLog(`❌ 버전 정보 로드 실패: ${e}`);
       }
       await this.loadDefaultCsv();
+      await this._registerDragDrop();
+    },
+
+    // Tauri IPC는 전부 스토어에 모아 둔다 — 컴포넌트에서 직접 부르지 않는다.
+    async _registerDragDrop() {
+      try {
+        await getCurrentWindow().onDragDropEvent((event) => {
+          if (event.payload.type === 'drop') this.handleDroppedPaths(event.payload.paths ?? []);
+        });
+      } catch (e) {
+        this.addLog(`❌ 드래그앤드롭을 등록하지 못했습니다: ${e}`);
+      }
+    },
+
+    // 드롭된 경로를 CSV와 검사 대상으로 갈라 처리한다.
+    // 분류 규칙은 도메인 지식이므로 컴포넌트가 아니라 여기 있어야 한다.
+    async handleDroppedPaths(paths) {
+      if (this.isProcessing) {
+        this.addLog('⚠️ 처리 중에는 파일을 추가할 수 없습니다. 먼저 중지하세요.');
+        return;
+      }
+
+      const csvPaths = paths.filter(path => extensionOf(path) === 'csv');
+      const targets = paths.filter(path => extensionOf(path) !== 'csv');
+
+      if (csvPaths.length > 1) {
+        this.addLog('⚠️ CSV 파일은 한 번에 하나만 등록 가능합니다.');
+      } else if (csvPaths.length === 1) {
+        await this.loadCsvFromPath(csvPaths[0]);
+      }
+
+      if (targets.length > 0) {
+        this.addFiles(targets);
+        this.activeTab = 1; // 파일 탭
+      }
     },
 
     // ── CSV ──────────────────────────────────────────
@@ -63,8 +100,9 @@ export const useAppStore = defineStore('app', {
         const content = await invoke('read_file_bytes', { path });
         this._parseCsvBytes(content, path, 'user');
       } catch (e) {
+        // 여기서 다시 던지면 호출부마다 catch를 달아야 한다. 로그로 알리는
+        // 것이 이 앱의 오류 처리 방식이므로 여기서 끝낸다.
         this.addLog(`❌ CSV 로드 실패: ${e}`);
-        throw e;
       }
     },
 
@@ -128,15 +166,23 @@ export const useAppStore = defineStore('app', {
     addFiles(paths) {
       const existing = new Set(this.files.map(f => f.path));
       let added = 0;
+      let dupes = 0;
+      let skipped = 0;
+
       for (const path of paths) {
-        const ext = path.split('.').pop().toLowerCase();
-        if (!['pdf', 'xlsx'].includes(ext)) continue;
-        if (existing.has(path)) continue;
-        const name = path.replace(/\\/g, '/').split('/').pop();
-        this.files.push({ id: this.nextId++, name, path, status: '대기' });
+        if (!['pdf', 'xlsx'].includes(extensionOf(path))) { skipped++; continue; }
+        // 한 번의 호출에 같은 경로가 두 번 들어와도 걸러야 한다 —
+        // 중복 항목 둘이 같은 output_ 경로를 두고 서로를 덮어쓴다.
+        if (existing.has(path)) { dupes++; continue; }
+        existing.add(path);
+        this.files.push({ id: this.nextId++, name: fileNameOf(path), path, status: '대기' });
         added++;
       }
+
+      // 조용히 버리면 사용자는 앱이 고장 난 줄 안다(.hwp·.xls를 자주 넣는다).
       if (added) this.addLog(`📂 ${added}개 파일 추가됨.`);
+      if (dupes) this.addLog(`ℹ️ 이미 목록에 있는 ${dupes}개는 건너뛰었습니다.`);
+      if (skipped) this.addLog(`⚠️ 지원하지 않는 형식 ${skipped}개는 제외했습니다. (PDF, XLSX만 가능)`);
     },
 
     async selectFiles() {
@@ -218,8 +264,8 @@ export const useAppStore = defineStore('app', {
           try {
             const bytes = await invoke('read_file_bytes', { path: file.path });
             if (!alive()) return;
-            const ext = file.name.split('.').pop().toLowerCase();
-            const outputPath = file.path.replace(/[^/\\]+$/, `output_${file.name}`);
+            const ext = extensionOf(file.path);
+            const outputPath = outputPathFor(file.path);
             const data = new Uint8Array(bytes);
             worker.postMessage(
               { type: 'process', id: file.id, name: file.name, ext, outputPath, data, keywords, detectConsecutiveSpaces },

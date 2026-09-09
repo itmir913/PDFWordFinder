@@ -1,7 +1,6 @@
 <script setup>
 import { onMounted } from 'vue';
 import { useAppStore } from './stores/app.js';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import TitleBar from './components/TitleBar.vue';
 import CsvSection from './components/CsvSection.vue';
 import ActionBar from './components/ActionBar.vue';
@@ -19,29 +18,8 @@ const TABS = [
   { label: '⬇️ 최신버전 다운로드', component: DownloadTab },
 ];
 
-onMounted(async () => {
-  await store.init();
-
-  // Tauri 파일 드래그앤드롭 이벤트 등록
-  const appWindow = getCurrentWindow();
-  await appWindow.onDragDropEvent((event) => {
-    if (event.payload.type === 'drop') {
-      const paths = event.payload.paths ?? [];
-      const csvPaths = paths.filter(p => p.toLowerCase().endsWith('.csv'));
-      const filePaths = paths.filter(p => /\.(pdf|xlsx)$/i.test(p));
-
-      if (csvPaths.length === 1) {
-        store.loadCsvFromPath(csvPaths[0]);
-      } else if (csvPaths.length > 1) {
-        store.addLog('⚠️ CSV 파일은 한 번에 하나만 등록 가능합니다.');
-      }
-      if (filePaths.length > 0) {
-        store.addFiles(filePaths);
-        store.activeTab = 1;
-      }
-    }
-  });
-});
+// 드래그앤드롭 등록·분류는 스토어(init)가 맡는다 — 컴포넌트는 화면만 그린다.
+onMounted(() => store.init());
 </script>
 
 <template>
