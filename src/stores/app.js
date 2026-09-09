@@ -123,7 +123,11 @@ export const useAppStore = defineStore('app', {
 
     async loadDefaultCsv() {
       try {
-        const { content, source } = await invoke('load_default_csv');
+        const { content, source, warning } = await invoke('load_default_csv');
+        // default.csv가 있는데 못 읽은 경우(Excel이 잠금, 권한 거부 등)를
+        // 알린다. 예전에는 '없음'과 구별되지 않아, 편집한 단어 목록 대신
+        // 내장 목록으로 조용히 검사가 돌았다.
+        if (warning) this.addLog(`⚠️ ${warning}`);
         const label = source === 'embedded' ? '(내장 단어 목록)' : '(기본값: default.csv)';
         this._parseCsvBytes(content, label, source);
       } catch (e) {
