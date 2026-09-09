@@ -1,5 +1,5 @@
 // PDF 하이라이트/북마크 생성 로직 (순수 함수 — Worker 밖에서도 테스트 가능)
-import { PDFName, PDFNumber, PDFHexString } from 'pdf-lib';
+import { PDFName, PDFNumber, PDFHexString, PDFDict, PDFRef } from 'pdf-lib';
 import { toMatchForm } from './keywords.js';
 
 // 두 아이템 사이가 "이어지는 글"이 아니라 다른 덩어리(줄바꿈, 옆 칸)인가.
@@ -162,6 +162,32 @@ export function addOutlines(pdfDoc, items) {
 
   const itemRefs = itemDicts.map(d => context.register(d));
 
+  const linkSiblings = (parentRef) => {
+    for (let i = 0; i < itemDicts.length; i++) {
+      itemDicts[i].set(PDFName.of('Parent'), parentRef);
+      if (i > 0) itemDicts[i].set(PDFName.of('Prev'), itemRefs[i - 1]);
+      if (i < itemDicts.length - 1) itemDicts[i].set(PDFName.of('Next'), itemRefs[i + 1]);
+    }
+  };
+
+  // 기존 북마크가 있으면 뒤에 이어 붙인다.
+  //
+  // 예전에는 /Outlines를 조건 없이 덮어써서, NEIS 출력물이나 병합본에 들어
+  // 있던 학생별·영역별 목차가 결과 파일에서 통째로 사라졌다. 하이라이트는
+  // 기존 어노테이션을 보존하는데 북마크만 파괴적이라 일관성도 없었다.
+  const existing = findOutlineTail(context, catalog);
+  if (existing) {
+    const { rootRef, rootDict, lastRef, lastDict, count } = existing;
+    lastDict.set(PDFName.of('Next'), itemRefs[0]);
+    itemDicts[0].set(PDFName.of('Prev'), lastRef);
+    linkSiblings(rootRef);
+    rootDict.set(PDFName.of('Last'), itemRefs[itemRefs.length - 1]);
+    rootDict.set(PDFName.of('Count'), PDFNumber.of(count + items.length));
+    catalog.set(PDFName.of('Outlines'), rootRef);
+    catalog.set(PDFName.of('PageMode'), PDFName.of('UseOutlines'));
+    return { preserved: count };
+  }
+
   const rootDict = context.obj({
     Type: PDFName.of('Outlines'),
     First: itemRefs[0],
@@ -169,15 +195,41 @@ export function addOutlines(pdfDoc, items) {
     Count: PDFNumber.of(items.length),
   });
   const rootRef = context.register(rootDict);
-
-  for (let i = 0; i < itemDicts.length; i++) {
-    itemDicts[i].set(PDFName.of('Parent'), rootRef);
-    if (i > 0) itemDicts[i].set(PDFName.of('Prev'), itemRefs[i - 1]);
-    if (i < itemDicts.length - 1) itemDicts[i].set(PDFName.of('Next'), itemRefs[i + 1]);
-  }
+  linkSiblings(rootRef);
 
   catalog.set(PDFName.of('Outlines'), rootRef);
   catalog.set(PDFName.of('PageMode'), PDFName.of('UseOutlines'));
+  return { preserved: 0 };
+}
+
+// 기존 북마크 트리의 최상위 마지막 항목을 찾는다.
+// 이어 붙일 수 없는 형태(First/Last가 없거나 간접참조가 아님)면 null.
+function findOutlineTail(context, catalog) {
+  const rootRef = catalog.get(PDFName.of('Outlines'));
+  if (!(rootRef instanceof PDFRef)) return null;
+
+  const rootDict = context.lookup(rootRef);
+  if (!(rootDict instanceof PDFDict)) return null;
+
+  const lastRef = rootDict.get(PDFName.of('Last'));
+  if (!(lastRef instanceof PDFRef)) return null;
+
+  const lastDict = context.lookup(lastRef);
+  if (!(lastDict instanceof PDFDict)) return null;
+
+  // /Count는 최상위 항목 수로 다시 센다 — 원본 값이 틀려 있어도 목차가
+  // 접힌 채로 열리거나 항목이 잘려 보이지 않게 한다.
+  let count = 0;
+  let cursor = rootDict.get(PDFName.of('First'));
+  while (cursor instanceof PDFRef && count < 10000) {
+    const node = context.lookup(cursor);
+    if (!(node instanceof PDFDict)) break;
+    count++;
+    cursor = node.get(PDFName.of('Next'));
+  }
+  if (count === 0) return null;
+
+  return { rootRef, rootDict, lastRef, lastDict, count };
 }
 
 export const HIGHLIGHT_RGB = [1, 0.9, 0]; // 노란색 (R G B, 0~1)

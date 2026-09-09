@@ -98,7 +98,10 @@ async function processPdf({ id, name, outputPath, data, keywords, detectConsecut
   const outlineItems = pageHighlights.flatMap(({ pageIndex, keywords }) =>
     [...keywords].map(kw => ({ title: `P${pageIndex + 1}: ${kw}`, pageIndex }))
   );
-  if (outlineItems.length > 0) addOutlines(pdfDoc, outlineItems);
+  let preservedOutlines = 0;
+  if (outlineItems.length > 0) {
+    ({ preserved: preservedOutlines } = addOutlines(pdfDoc, outlineItems));
+  }
 
   const outBytes = await pdfDoc.save();
   const resultData = new Uint8Array(outBytes);
@@ -107,7 +110,11 @@ async function processPdf({ id, name, outputPath, data, keywords, detectConsecut
     { type: 'result', id, name, outputPath, data: resultData },
     [resultData.buffer]
   );
-  self.postMessage({ type: 'log', message: `✅ PDF 완료 | 탐지 ${totalFound}건, 북마크 ${outlineItems.length}개 → ${outputPath}` });
+  const kept = preservedOutlines > 0 ? `, 기존 북마크 ${preservedOutlines}개 유지` : '';
+  self.postMessage({
+    type: 'log',
+    message: `✅ PDF 변환 완료 | 탐지 ${totalFound}건, 북마크 ${outlineItems.length}개 추가${kept}`,
+  });
 }
 
 // ── Excel 처리 ────────────────────────────────────────────────────

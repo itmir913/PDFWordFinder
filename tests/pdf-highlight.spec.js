@@ -337,3 +337,72 @@ describe('아이템 경계 처리', () => {
     expect(quadsFor(items, ['대회 참가']).rects).toEqual([]);
   });
 });
+
+// 회귀: /Outlines를 조건 없이 덮어써서, 원본 PDF에 들어 있던 목차가
+// 결과 파일에서 통째로 사라졌다. NEIS 출력물·병합본에는 학생별/영역별
+// 북마크가 들어 있다. 하이라이트는 기존 것을 보존하는데 북마크만 파괴적이었다.
+describe('addOutlines — 기존 북마크 보존', () => {
+  const makeDoc = async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage();
+    doc.addPage();
+    return doc;
+  };
+
+  const topLevelTitles = (doc) => {
+    const { context, catalog } = doc;
+    const root = context.lookup(catalog.get(PDFName.of('Outlines')));
+    const titles = [];
+    let cursor = root.get(PDFName.of('First'));
+    while (cursor) {
+      const node = context.lookup(cursor);
+      if (!node) break;
+      titles.push(node.get(PDFName.of('Title')).decodeText());
+      cursor = node.get(PDFName.of('Next'));
+    }
+    return titles;
+  };
+
+  it('기존 북마크가 없으면 새로 만든다', async () => {
+    const doc = await makeDoc();
+    const result = addOutlines(doc, [{ title: 'P1: 토익', pageIndex: 0 }]);
+    expect(result.preserved).toBe(0);
+    expect(topLevelTitles(doc)).toEqual(['P1: 토익']);
+  });
+
+  it('기존 북마크 뒤에 이어 붙인다', async () => {
+    const doc = await makeDoc();
+    addOutlines(doc, [{ title: '학생 A', pageIndex: 0 }, { title: '학생 B', pageIndex: 1 }]);
+
+    const result = addOutlines(doc, [{ title: 'P1: 토익', pageIndex: 0 }]);
+
+    expect(result.preserved).toBe(2);
+    expect(topLevelTitles(doc)).toEqual(['학생 A', '학생 B', 'P1: 토익']);
+  });
+
+  it('이어 붙인 뒤 Count가 최상위 항목 수와 맞는다', async () => {
+    const doc = await makeDoc();
+    addOutlines(doc, [{ title: '학생 A', pageIndex: 0 }]);
+    addOutlines(doc, [{ title: 'P1: 토익', pageIndex: 0 }, { title: 'P2: 토플', pageIndex: 1 }]);
+
+    const root = doc.context.lookup(doc.catalog.get(PDFName.of('Outlines')));
+    expect(root.get(PDFName.of('Count')).asNumber()).toBe(3);
+    expect(topLevelTitles(doc)).toHaveLength(3);
+  });
+
+  it('앞뒤 항목이 Prev/Next로 제대로 이어진다', async () => {
+    const doc = await makeDoc();
+    addOutlines(doc, [{ title: '학생 A', pageIndex: 0 }]);
+    addOutlines(doc, [{ title: 'P1: 토익', pageIndex: 0 }]);
+
+    const { context, catalog } = doc;
+    const root = context.lookup(catalog.get(PDFName.of('Outlines')));
+    const first = context.lookup(root.get(PDFName.of('First')));
+    const last = context.lookup(root.get(PDFName.of('Last')));
+
+    expect(first.get(PDFName.of('Title')).decodeText()).toBe('학생 A');
+    expect(last.get(PDFName.of('Title')).decodeText()).toBe('P1: 토익');
+    expect(context.lookup(first.get(PDFName.of('Next')))).toBe(last);
+    expect(context.lookup(last.get(PDFName.of('Prev')))).toBe(first);
+  });
+});
